@@ -2,6 +2,7 @@ services:
   - type: web
     name: achados-mercadolivre
     runtime: node
+    rootDir: servidor
     plan: free
     buildCommand: echo pronto
     startCommand: npm start
@@ -16,6 +17,7 @@ services:
   - type: web
     name: achados-shopee
     runtime: node
+    rootDir: servidor
     plan: free
     buildCommand: echo pronto
     startCommand: npm start
@@ -30,6 +32,7 @@ services:
   - type: web
     name: achados-shein
     runtime: node
+    rootDir: servidor
     plan: free
     buildCommand: echo pronto
     startCommand: npm start
