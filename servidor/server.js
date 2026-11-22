@@ -133,6 +133,64 @@ async function buscarShein(q, min, max) {
   return out;
 }
 
+
+// --- Leitor de produto: segue links curtos e lê nome e foto da página (sem chave, sem conta) ---
+const LOJAS_OK = /(^|\.)(shopee\.com\.br|shope\.ee|shp\.ee|mercadolivre\.com\.br|mercadolibre\.com|meli\.la|shein\.com|shein\.top|tiktok\.com)$/i;
+const decHtml = t => String(t || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim();
+function urlPermitida(u) {
+  try { const x = new URL(u); return /^https?:$/.test(x.protocol) && LOJAS_OK.test(x.hostname); } catch (e) { return false; }
+}
+async function lerTexto(res, max) {
+  const rd = res.body.getReader(), dec = new TextDecoder('utf-8', { fatal: false });
+  let t = '', n = 0;
+  while (n < max) {
+    const { done, value } = await rd.read();
+    if (done) break;
+    n += value.length; t += dec.decode(value, { stream: true });
+  }
+  try { await rd.cancel(); } catch (e) {}
+  return t;
+}
+function metas(html) {
+  const out = {};
+  for (const tag of (html.match(/<meta\s[^>]*>/gi) || [])) {
+    const k = (tag.match(/(?:property|name)\s*=\s*["']([^"']+)["']/i) || [])[1];
+    const v = (tag.match(/content\s*=\s*"([^"]*)"/i) || tag.match(/content\s*=\s*'([^']*)'/i) || [])[1];
+    if (k && v != null && out[k.toLowerCase()] === undefined) out[k.toLowerCase()] = decHtml(v);
+  }
+  const t = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1];
+  if (t) out.__title = decHtml(t);
+  return out;
+}
+async function lerProduto(u0) {
+  const key = 'p|' + u0;
+  const c = cache.get(key);
+  if (c && Date.now() - c.t < 30 * 60 * 1000) return c.v;
+  let u = u0, html = '';
+  for (let i = 0; i < 6; i++) {
+    if (!urlPermitida(u)) throw new Error('link de loja não permitido');
+    const r = await fetch(u, {
+      redirect: 'manual', signal: sleepTimeout(9000),
+      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', 'accept': 'text/html,application/xhtml+xml', 'accept-language': 'pt-BR,pt;q=0.9' }
+    });
+    if (r.status >= 300 && r.status < 400 && r.headers.get('location')) { u = new URL(r.headers.get('location'), u).href; continue; }
+    html = await lerTexto(r, 400000);
+    break;
+  }
+  const m = metas(html);
+  let img = m['og:image'] || m['twitter:image'] || m['og:image:url'] || '';
+  if (img.startsWith('//')) img = 'https:' + img;
+  if (!/^https?:\/\//i.test(img)) img = '';
+  const v = {
+    titulo: m['og:title'] || m['twitter:title'] || m.__title || '',
+    imagem: img,
+    preco: precoNum(m['product:price:amount'] || m['og:price:amount'] || ''),
+    url: u
+  };
+  if (v.titulo || v.imagem) cache.set(key, { t: Date.now(), v });
+  return v;
+}
+
 const PROV = { ml: buscarML, shopee: buscarShopee, shein: buscarShein };
 const TTLS = { ml: TTL, shopee: TTL, shein: 30 * 60 * 1000 };
 async function porLoja(l, q, min, max) {
@@ -169,6 +227,13 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (url.pathname === '/api/saude') return json(res, 200, { ok: true, ml: !!(E.ML_CLIENT_ID && E.ML_CLIENT_SECRET), shopee: !!(E.SHOPEE_APP_ID && E.SHOPEE_APP_SECRET), shein: !!E.APIFY_TOKEN, loja: SO || 'todas' });
+    if (url.pathname === '/api/produto') {
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      if (!limite(ip, 30, 'p')) return json(res, 429, { erro: 'Muitas buscas. Aguarde um minuto.' });
+      const u = String(url.searchParams.get('url') || '').trim().slice(0, 600);
+      if (!urlPermitida(u)) return json(res, 400, { erro: 'Link inválido ou de loja não permitida' });
+      try { return json(res, 200, await lerProduto(u)); } catch (e) { return json(res, 200, { titulo: '', imagem: '', preco: 0, url: u, erro: String(e.message || 'falha').slice(0, 120) }); }
+    }
     const m = url.pathname.match(/^\/api\/loja\/(ml|shopee|shein)$/);
     if (m) {
       if (SO && m[1] !== SO) return json(res, 404, { itens: [], aviso: 'Este servidor atende só: ' + SO });
@@ -198,4 +263,4 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) server.listen(PORT, () => console.log('Achados Baratos no ar: http://localhost:' + PORT));
-module.exports = { server, precos, porLoja, buscarShopee, buscarML, buscarShein };
+module.exports = { server, precos, porLoja, lerProduto, buscarShopee, buscarML, buscarShein };
