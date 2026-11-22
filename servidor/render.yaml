@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: achados-mercadolivre
+    runtime: node
+    plan: free
+    buildCommand: echo pronto
+    startCommand: npm start
+    healthCheckPath: /api/saude
+    envVars:
+      - key: LOJA
+        value: ml
+      - key: ML_CLIENT_ID
+        sync: false
+      - key: ML_CLIENT_SECRET
+        sync: false
+  - type: web
+    name: achados-shopee
+    runtime: node
+    plan: free
+    buildCommand: echo pronto
+    startCommand: npm start
+    healthCheckPath: /api/saude
+    envVars:
+      - key: LOJA
+        value: shopee
+      - key: SHOPEE_APP_ID
+        sync: false
+      - key: SHOPEE_APP_SECRET
+        sync: false
+  - type: web
+    name: achados-shein
+    runtime: node
+    plan: free
+    buildCommand: echo pronto
+    startCommand: npm start
+    healthCheckPath: /api/saude
+    envVars:
+      - key: LOJA
+        value: shein
+      - key: APIFY_TOKEN
+        sync: false
+      - key: SHEIN_COUNTRY
+        value: br
